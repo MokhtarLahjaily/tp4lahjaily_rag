@@ -15,6 +15,8 @@
         <maven.compiler.target>21</maven.compiler.target>
         <maven.compiler.source>21</maven.compiler.source>
         <junit.version>5.10.2</junit.version>
+        <langchain4j.version>1.8.0</langchain4j.version>
+        <langchain4j.beta.version>1.8.0-beta15</langchain4j.beta.version>
     </properties>
 
     <dependencies>
@@ -24,22 +26,43 @@
             <version>10.0.0</version>
             <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
-            <version>1.8.0</version>
+            <version>${langchain4j.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-google-ai-gemini</artifactId>
-            <version>1.8.0</version>
+            <version>${langchain4j.version}</version>
         </dependency>
+
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-embeddings-all-minilm-l6-v2</artifactId>
+            <version>${langchain4j.beta.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-document-parser-apache-tika</artifactId>
+            <version>${langchain4j.beta.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <version>2.0.17</version>
+        </dependency>
+
         <dependency>
             <groupId>org.primefaces</groupId>
             <artifactId>primefaces</artifactId>
             <version>15.0.7</version>
             <classifier>jakarta</classifier>
         </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>

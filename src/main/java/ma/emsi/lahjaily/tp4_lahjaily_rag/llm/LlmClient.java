@@ -1,88 +1,156 @@
 package ma.emsi.lahjaily.tp4_lahjaily_rag.llm;
 
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.memory.ChatMemory;
+import dev.langchain4j.data.document.Document;
+import dev.langchain4j.data.document.DocumentParser;
+import dev.langchain4j.data.document.DocumentSplitter;
+import dev.langchain4j.data.document.loader.FileSystemDocumentLoader;
+import dev.langchain4j.data.document.parser.apache.tika.ApacheTikaDocumentParser;
+import dev.langchain4j.data.document.splitter.DocumentSplitters;
+import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.embedding.onnx.allminilml6v2.AllMiniLmL6V2EmbeddingModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import dev.langchain4j.rag.content.retriever.ContentRetriever;
+import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
 import dev.langchain4j.service.AiServices;
-import jakarta.enterprise.context.Dependent;
+import dev.langchain4j.store.embedding.EmbeddingStore;
+import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
+import jakarta.annotation.PostConstruct;
+import jakarta.enterprise.context.ApplicationScoped;
 
 import java.io.Serializable;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
- * Service d'accès centralisé au modèle de langage Gemini via LangChain4j.
- * Gère la mémoire de chat et le rôle système pour maintenir le contexte.
+ * Service d'accès centralisé au LLM, configuré pour le RAG de base.
+ * Utilise @ApplicationScoped pour n'ingérer les documents qu'une seule fois.
  */
-@Dependent
-public class LlmClient implements Serializable { // 👈 AJOUTÉ "implements Serializable"
+@ApplicationScoped // CHANGÉ : @ApplicationScoped pour l'ingestion unique
+public class LlmClient implements Serializable {
 
-
-    private transient ChatMemory chatMemory;
-    private transient Assistant assistant;
-    private String systemRole;
-
-
+    private Assistant assistant;
+    private String geminiApiKey;
 
     /**
-     * Initialise le client Gemini et configure le modèle conversationnel.
+     * Initialise les clés API et configure le logging.
      */
     public LlmClient() {
-
-        // Lecture de la clé API depuis les variables d'environnement
-        String apiKey = System.getenv("GEMINI_KEY");
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException(
-                    "Erreur : variable d'environnement GEMINI_KEY absente ou vide."
-            );
+        geminiApiKey = System.getenv("GEMINI_KEY");
+        if (geminiApiKey == null || geminiApiKey.isBlank()) {
+            throw new IllegalStateException("Erreur : variable d'environnement GEMINI_KEY absente.");
         }
+        configureLogger();
+    }
 
-        // Création du modèle Gemini avec paramètres par défaut
+    /**
+     * Méthode d'initialisation exécutée après la construction du bean.
+     * C'est ici que nous configurons tout le pipeline RAG.
+     */
+    @PostConstruct
+    public void init() {
+        // 1. Créer le ChatModel
         ChatModel model = GoogleAiGeminiChatModel.builder()
-                .apiKey(apiKey)
+                .apiKey(geminiApiKey)
                 .modelName("gemini-2.5-flash")
-                .temperature(0.7)
+                .temperature(0.3)
+                .logRequests(true)
+                .logResponses(true)
                 .build();
 
-        // Mise en place d’une mémoire de conversation glissante (10 messages)
-        chatMemory = MessageWindowChatMemory.withMaxMessages(10);
+        // 2. Créer le Modèle d'Embedding
+        EmbeddingModel embeddingModel = new AllMiniLmL6V2EmbeddingModel();
 
-        // Construction du service Assistant à partir du modèle et de la mémoire
+        // 3. PHASE D'INGESTION
+        System.out.println("Démarrage de l'ingestion des documents...");
+
+        // Créer un SEUL EmbeddingStore pour TOUS les documents
+        EmbeddingStore<TextSegment> embeddingStore = new InMemoryEmbeddingStore<>();
+
+        // Ingestion de rag.pdf
+        List<TextSegment> ragSegments = ingestDocument("rag.pdf", embeddingModel);
+        embeddingStore.addAll(embeddingModel.embedAll(ragSegments).content(), ragSegments);
+
+        // Ingestion de finance.pdf
+        List<TextSegment> financeSegments = ingestDocument("finance.pdf", embeddingModel);
+        embeddingStore.addAll(embeddingModel.embedAll(financeSegments).content(), financeSegments);
+
+        int totalSegments = ragSegments.size() + financeSegments.size();
+        System.out.println("Ingestion terminée. Total segments : " + totalSegments);
+
+
+        // 4. CRÉER LE CONTENT RETRIEVER
+        // Ce retriever unique cherche dans le magasin contenant les deux PDF
+        ContentRetriever contentRetriever = EmbeddingStoreContentRetriever.builder()
+                .embeddingStore(embeddingStore)
+                .embeddingModel(embeddingModel)
+                .maxResults(3) // Récupère les 3 segments les plus pertinents
+                .minScore(0.5)
+                .build();
+
+        // 5. CRÉER L'ASSISTANT FINAL
         assistant = AiServices.builder(Assistant.class)
                 .chatModel(model)
-                .chatMemory(chatMemory)
+                .contentRetriever(contentRetriever) // <-- LE RAG EST CONNECTÉ ICI
+                .chatMemory(MessageWindowChatMemory.withMaxMessages(10)) // Mémoire de chat
                 .build();
     }
 
-    // === Méthodes publiques ===
-
     /**
-     * Définit un rôle système pour le modèle et réinitialise la mémoire du chat.
-     *
-     * @param role description du comportement attendu du modèle.
-     */
-    public void setSystemRole(String role) {
-        this.systemRole = role;
-        chatMemory.clear();
-
-        if (role != null && !role.trim().isEmpty()) {
-            chatMemory.add(SystemMessage.from(role));
-        }
-    }
-
-    /**
-     * Envoie un message au modèle et récupère la réponse générée.
-     *
-     * @param prompt texte de la question ou instruction.
-     * @return réponse textuelle produite par le modèle.
+     * Envoie un message au service RAG et récupère la réponse.
      */
     public String ask(String prompt) {
         return assistant.chat(prompt);
     }
 
-    // === Getters ===
+    /**
+     * Le rôle système est maintenant géré par le RAG.
+     * Nous gardons la méthode pour la compatibilité avec BackingBean, mais elle est désactivée.
+     */
+    public void setSystemRole(String role) {
+        // Cette méthode n'est plus nécessaire car le contexte vient du RAG.
+        // On pourrait réinitialiser la mémoire ici si nécessaire.
+    }
 
-    public String getSystemRole() {
-        return systemRole;
+
+    // --- MÉTHODES HELPER (prises de rag_tests) ---
+
+    private static void configureLogger() {
+        Logger packageLogger = Logger.getLogger("dev.langchain4j");
+        packageLogger.setLevel(Level.FINE);
+        ConsoleHandler handler = new ConsoleHandler();
+        handler.setLevel(Level.FINE);
+        packageLogger.addHandler(handler);
+    }
+
+    private static Path getPath(String fileName) {
+        try {
+            URI fileUri = Thread.currentThread().getContextClassLoader().getResource(fileName).toURI();
+            return Paths.get(fileUri);
+        } catch (URISyntaxException e) {
+            throw new RuntimeException("Impossible de trouver le fichier " + fileName, e);
+        }
+    }
+
+    /**
+     * Charge, parse, et segmente un document.
+     * @return Une liste de TextSegment
+     */
+    private static List<TextSegment> ingestDocument(String resourceName, EmbeddingModel embeddingModel) {
+        Path documentPath = getPath(resourceName);
+        DocumentParser parser = new ApacheTikaDocumentParser();
+        Document document = FileSystemDocumentLoader.loadDocument(documentPath, parser);
+        DocumentSplitter splitter = DocumentSplitters.recursive(300, 30);
+        List<TextSegment> segments = splitter.split(document);
+        System.out.println("Ingestion de '" + resourceName + "' terminée. " + segments.size() + " segments.");
+        return segments;
     }
 }

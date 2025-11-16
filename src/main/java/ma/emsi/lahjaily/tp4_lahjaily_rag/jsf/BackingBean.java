@@ -23,8 +23,11 @@ import java.util.List;
 @ViewScoped
 public class BackingBean implements Serializable {
 
-    private String roleSysteme;
-    private boolean roleSystemeChangeable = true;
+    private String roleSysteme = "RAG-Base"; // Valeur par défaut
+
+    // CHANGÉ : mis à false pour désactiver le menu déroulant
+    private boolean roleSystemeChangeable = false;
+
     private String question;
     private String reponse;
     private final StringBuilder conversation = new StringBuilder();
@@ -39,18 +42,19 @@ public class BackingBean implements Serializable {
         }
 
         try {
-            // Définition du rôle système au premier appel
-            if (roleSystemeChangeable) {
-                llm.setSystemRole(roleSysteme);
-                roleSystemeChangeable = false;
-            }
+            // La logique de définition du rôle est maintenant désactivée
+            // if (roleSystemeChangeable) {
+            //     llm.setSystemRole(roleSysteme);
+            //     roleSystemeChangeable = false;
+            // }
 
             reponse = llm.ask(question);
             enregistrerEchange(question, reponse);
 
         } catch (Exception e) {
             reponse = null;
-            afficherMessage(FacesMessage.SEVERITY_ERROR, "Erreur LLM", e.getMessage());
+            // Affiche l'erreur complète, ce qui est utile pour les clés API manquantes
+            afficherMessage(FacesMessage.SEVERITY_ERROR, e.getClass().getSimpleName(), e.getMessage());
             e.printStackTrace();
         }
 
@@ -78,15 +82,9 @@ public class BackingBean implements Serializable {
     public List<SelectItem> getRolesSysteme() {
         if (rolesDisponibles == null) {
             rolesDisponibles = new ArrayList<>();
-            String role = "You are a helpful assistant. You help the user find information and explain step by step when asked.";
-            rolesDisponibles.add(new SelectItem(role, "Assistant"));
-
-            role = "You are an interpreter. Translate French ↔ English. If 1–3 words, add usage examples.";
-            rolesDisponibles.add(new SelectItem(role, "Traducteur Anglais–Français"));
-
-            role = "You are a travel guide. When given a country/city, list top places to visit and typical meal price.";
-            rolesDisponibles.add(new SelectItem(role, "Guide touristique"));
-
+            // Modifié pour refléter le nouveau rôle
+            String role = "RAG-Base";
+            rolesDisponibles.add(new SelectItem(role, "Assistant RAG (Finance, IA)"));
         }
         return rolesDisponibles;
     }
