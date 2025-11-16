@@ -11,10 +11,7 @@
 </h:head>
 <h:body>
     <f:view>
-
-        <f:websocket channel="chat" onmessage="handleStream" />
-
-        <h:messages errorStyle="color: red" showDetail="true" showSummary="false" globalOnly="true"/>
+        <h:messages id="messages" errorStyle="color: red" showDetail="true" showSummary="false" globalOnly="true"/>
 
         <h:form id="form">
             <p:outputLabel for="rolesysteme" value="Rôle de l'API : "/>
@@ -39,7 +36,7 @@
                                          cols="50" rows="5"/>
 
                         <h:commandButton value="Envoyer la question" action="#{bb.envoyer}">
-                            <f:ajax execute="@form" render="@none" onevent="onStreamStart" />
+                            <f:ajax execute="@form" render="panelgauche paneldroit messages"/>
                         </h:commandButton>
 
                         <h:panelGroup>
@@ -48,7 +45,23 @@
                         </h:panelGroup>
                         <h:inputTextarea id="reponse" value="#{bb.reponse}" title="Réponse"
                                          cols="50" rows="15"/>
+
+                        <h:commandButton id="debugbutton" value="#{bb.debug?'Mode Normal':'Mode Debug'}"
+                                         action="#{bb.toggleDebug()}">
+                            <f:ajax render="debugWrapper"/> </h:commandButton>
                     </h:panelGrid>
+
+                    <h:panelGroup id="debugWrapper">
+                        <h:panelGrid id="paneldebug" columns="1" rendered="#{bb.debug}">
+                            <h:panelGroup>
+                                <h:outputText value="Segments Récupérés (Debug) :"/>
+                                <button onclick="copyToClipboard('debuginfo')">Copier Debug</button>
+                            </h:panelGroup>
+                            <h:inputTextarea id="debuginfo" value="#{bb.debugInfo}" title="Debug Info"
+                                             cols="50" rows="15" readonly="true"/>
+                        </h:panelGrid>
+                    </h:panelGroup>
+
                 </h:panelGrid>
                 <h:panelGrid id="paneldroit" columns="1" style="vertical-align: top;">
                     <h:panelGroup>
