@@ -7,21 +7,23 @@ import dev.langchain4j.data.document.loader.FileSystemDocumentLoader;
 import dev.langchain4j.data.document.parser.apache.tika.ApacheTikaDocumentParser;
 import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.memory.ChatMemory; // <-- IMPORT NÉCESSAIRE
+import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.allminilml6v2.AllMiniLmL6V2EmbeddingModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
-import dev.langchain4j.rag.DefaultRetrievalAugmentor; // <-- IMPORT NÉCESSAIRE
-import dev.langchain4j.rag.RetrievalAugmentor; // <-- IMPORT NÉCESSAIRE
+import dev.langchain4j.rag.DefaultRetrievalAugmentor;
+import dev.langchain4j.rag.RetrievalAugmentor;
+import dev.langchain4j.rag.content.retriever.WebSearchContentRetriever;
+import dev.langchain4j.web.search.WebSearchEngine;
+import dev.langchain4j.web.search.tavily.TavilyWebSearchEngine;
 import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
-// Imports pour le ROUTAGE
 import dev.langchain4j.rag.query.Query;
-import dev.langchain4j.rag.query.router.LanguageModelQueryRouter; // <-- IMPORT NÉCESSAIRE
-import dev.langchain4j.rag.query.router.QueryRouter; // <-- IMPORT NÉCESSAIRE
+import dev.langchain4j.rag.query.router.LanguageModelQueryRouter;
+import dev.langchain4j.rag.query.router.QueryRouter;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
@@ -33,32 +35,37 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection; // <-- IMPORT NÉCESSAIRE
-import java.util.HashMap; // <-- IMPORT NÉCESSAIRE
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Map; // <-- IMPORT NÉCESSAIRE
+import java.util.Map;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.stream.Collectors; // <-- IMPORT NÉCESSAIRE
+
 
 @ApplicationScoped
 public class LlmClient implements Serializable {
 
     private Assistant assistant;
     private String geminiApiKey;
+    private String tavilyApiKey;
 
     public record RagResponse(String answer, String debugInfo) {}
 
-    // MODIFIÉ : Nous n'avons plus un seul retriever, mais le routeur
+
     private QueryRouter queryRouter;
-    private ChatMemory chatMemory; // Pour le debug
-    private EmbeddingModel embeddingModel; // Pour le debug
+    private ChatMemory chatMemory;
+    private EmbeddingModel embeddingModel;
 
     public LlmClient() {
         geminiApiKey = System.getenv("GEMINI_KEY");
         if (geminiApiKey == null || geminiApiKey.isBlank()) {
             throw new IllegalStateException("Erreur : variable d'environnement GEMINI_KEY absente.");
+        }
+        tavilyApiKey = System.getenv("TAVILY_KEY");
+        if (tavilyApiKey == null || tavilyApiKey.isBlank()) {
+            throw new IllegalStateException("Erreur : variable d'environnement TAVILY_KEY absente pour la recherche web.");
         }
         configureLogger();
     }
@@ -73,7 +80,6 @@ public class LlmClient implements Serializable {
                 .logResponses(true)
                 .build();
 
-        // MODIFIÉ : Mettre en champ de classe pour le debug
         this.embeddingModel = new AllMiniLmL6V2EmbeddingModel();
 
         // --- 3. PHASE D'INGESTION (SÉPARÉE) ---
@@ -103,36 +109,38 @@ public class LlmClient implements Serializable {
                 .maxResults(2) // 2 segments pertinents de ce PDF
                 .build();
 
+        // Retriever 3 : Web Search
+        WebSearchEngine webSearchEngine = TavilyWebSearchEngine.builder()
+                .apiKey(tavilyApiKey)
+                .build();
+
+        ContentRetriever webRetriever = WebSearchContentRetriever.builder()
+                .webSearchEngine(webSearchEngine)
+                .build();
+
         // --- 5. CRÉER LE ROUTEUR (Noyau de l'étape 2) ---
 
         // Descriptions que le LLM utilisera pour choisir
         Map<ContentRetriever, String> retrieverMap = new HashMap<>();
         retrieverMap.put(ragRetriever, "Information sur le RAG (Retrieval-Augmented Generation), LangChain4j et l'intelligence artificielle");
         retrieverMap.put(financeRetriever, "Information sur la finance, l'économie, les banques et les investissements");
-
-        // MODIFIÉ : Assigner au champ de classe "this.queryRouter"
+        retrieverMap.put(webRetriever, "Informations d'actualité, événements récents, ou sujets généraux non couverts par les documents PDF (comme la météo, le sport, etc.)");
         this.queryRouter = new LanguageModelQueryRouter(model, retrieverMap);
 
-        // --- 6. CRÉER L'AUGMENTOR (Nouveau composant) ---
+        // --- 6. CRÉER L'AUGMENTOR ---
         RetrievalAugmentor retrievalAugmentor = DefaultRetrievalAugmentor.builder()
                 .queryRouter(this.queryRouter) // Utilise notre routeur
                 .build();
-
-        // MODIFIÉ : Mettre en champ de classe
         this.chatMemory = MessageWindowChatMemory.withMaxMessages(10);
 
-        // --- 7. CRÉER L'ASSISTANT FINAL (Modifié) ---
+        // --- 7. CRÉER L'ASSISTANT FINAL ---
         assistant = AiServices.builder(Assistant.class)
                 .chatModel(model)
-                // MODIFIÉ : On utilise .retrievalAugmentor() au lieu de .contentRetriever()
                 .retrievalAugmentor(retrievalAugmentor)
                 .chatMemory(this.chatMemory)
                 .build();
     }
 
-    /**
-     * MODIFIÉ : La logique de debug doit maintenant interroger le routeur
-     */
     public RagResponse ask(String prompt) {
         // 1. Obtenir la réponse de l'assistant
         String answer = assistant.chat(prompt);
@@ -147,9 +155,6 @@ public class LlmClient implements Serializable {
         return new RagResponse(answer, debugInfo);
     }
 
-    /**
-     * NOUVEAU : Logique de debug pour le routeur
-     */
     private String formatRouterDebug(Query query, Collection<ContentRetriever> retrievers) {
         if (retrievers == null || retrievers.isEmpty()) {
             return "--- Le routeur n'a sélectionné aucun ContentRetriever. ---";
@@ -158,29 +163,33 @@ public class LlmClient implements Serializable {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("--- Le routeur a sélectionné %d retriever(s) ---%n%n", retrievers.size()));
 
-        // Pour chaque retriever choisi, on récupère les segments
         for (ContentRetriever retriever : retrievers) {
+            String retrieverName = retriever.getClass().getSimpleName();
+            if (retriever instanceof WebSearchContentRetriever) {
+                retrieverName = "WebSearchRetriever(Tavily)";
+            }
+
             List<Content> contents = retriever.retrieve(query);
             if (contents != null && !contents.isEmpty()) {
-                sb.append(String.format("--- Segments trouvés par [ %s ] ---%n", retriever.getClass().getSimpleName()));
+                sb.append(String.format("--- Segments trouvés par [ %s ] ---%n", retrieverName));
                 for (Content content : contents) {
-                    sb.append(content.textSegment().text());
+
+                    // L'accès au texte se fait toujours via .textSegment().text()
+                    String text = content.textSegment().text();
+                    // --------------------
+
+                    sb.append(text);
                     sb.append(String.format("%n---%n"));
                 }
             } else {
-                sb.append(String.format("--- [ %s ] n'a retourné aucun segment.%n", retriever.getClass().getSimpleName()));
+                sb.append(String.format("--- [ %s ] n'a retourné aucun segment.%n", retrieverName));
             }
         }
 
         return sb.toString();
     }
 
-
-    public void setSystemRole(String role) {
-        // Non utilisé
-    }
-
-    // --- Méthodes helper (inchangées) ---
+    // --- Méthodes helper ---
     private static void configureLogger() {
         Logger packageLogger = Logger.getLogger("dev.langchain4j");
         packageLogger.setLevel(Level.FINE);
@@ -198,17 +207,12 @@ public class LlmClient implements Serializable {
         }
     }
 
-    /**
-     * MODIFIÉ : Cette méthode ingère UN document et retourne son propre EmbeddingStore
-     */
     private static EmbeddingStore<TextSegment> ingestDocument(String resourceName, EmbeddingModel embeddingModel) {
         Path documentPath = getPath(resourceName);
         DocumentParser parser = new ApacheTikaDocumentParser();
         Document document = FileSystemDocumentLoader.loadDocument(documentPath, parser);
         DocumentSplitter splitter = DocumentSplitters.recursive(300, 30);
         List<TextSegment> segments = splitter.split(document);
-
-        // Créer un store DÉDIÉ pour ce document
         EmbeddingStore<TextSegment> embeddingStore = new InMemoryEmbeddingStore<>();
         embeddingStore.addAll(embeddingModel.embedAll(segments).content(), segments);
 

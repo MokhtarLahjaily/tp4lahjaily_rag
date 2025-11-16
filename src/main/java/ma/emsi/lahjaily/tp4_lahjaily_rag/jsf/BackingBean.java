@@ -6,7 +6,6 @@ import jakarta.faces.model.SelectItem;
 import jakarta.faces.view.ViewScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
-// NOUVEAU : Import pour le record RagResponse
 import ma.emsi.lahjaily.tp4_lahjaily_rag.llm.LlmClient;
 
 import java.io.Serializable;
@@ -17,17 +16,16 @@ import java.util.List;
 @ViewScoped
 public class BackingBean implements Serializable {
 
-    private String roleSysteme = "RAG-Router";
+    private String roleSysteme = "RAG-Router-Web";
     private boolean roleSystemeChangeable = false;
 
     private String question;
     private String reponse;
     private final StringBuilder conversation = new StringBuilder();
 
-    // --- NOUVEAUX CHAMPS POUR LE DEBUG (comme TP1) ---
+
     private boolean debug = false;
     private String debugInfo = ""; // Sera utilisé pour les segments récupérés
-    // ------------------------------------------------
 
     @Inject
     private LlmClient llm;
@@ -39,7 +37,7 @@ public class BackingBean implements Serializable {
         }
 
         try {
-            // MODIFIÉ : Récupérer l'objet RagResponse
+            // Récupérer l'objet RagResponse
             LlmClient.RagResponse ragResponse = llm.ask(question);
 
             this.reponse = ragResponse.answer(); // Extraire la réponse
@@ -57,7 +55,6 @@ public class BackingBean implements Serializable {
         return null;
     }
 
-    // --- NOUVELLES MÉTHODES POUR LE DEBUG (comme TP1) ---
     public boolean isDebug() {
         return debug;
     }
@@ -73,8 +70,6 @@ public class BackingBean implements Serializable {
     public void setDebugInfo(String debugInfo) {
         this.debugInfo = debugInfo;
     }
-    // ----------------------------------------------------
-
 
     public String nouveauChat() {
         return "index?faces-redirect=true";
@@ -95,13 +90,13 @@ public class BackingBean implements Serializable {
     public List<SelectItem> getRolesSysteme() {
         if (rolesDisponibles == null) {
             rolesDisponibles = new ArrayList<>();
-            String role = "RAG-Router";
-            rolesDisponibles.add(new SelectItem(role, "RAG avec Routage (Finance/IA)"));
+            String role = "RAG-Router-Web";
+            rolesDisponibles.add(new SelectItem(role, "RAG (Finance/IA) + Web"));
         }
         return rolesDisponibles;
     }
 
-    // --- Getters et Setters (inchangés) ---
+    // --- Getters et Setters ---
     public String getRoleSysteme() { return roleSysteme; }
     public void setRoleSysteme(String roleSysteme) { this.roleSysteme = roleSysteme; }
     public boolean isRoleSystemeChangeable() { return roleSystemeChangeable; }
