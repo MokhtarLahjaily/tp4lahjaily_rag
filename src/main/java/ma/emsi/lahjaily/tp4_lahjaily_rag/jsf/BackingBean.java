@@ -17,7 +17,7 @@ import java.util.List;
 @ViewScoped
 public class BackingBean implements Serializable {
 
-    private String roleSysteme = "RAG-Base";
+    private String roleSysteme = "RAG-Router";
     private boolean roleSystemeChangeable = false;
 
     private String question;
@@ -95,8 +95,8 @@ public class BackingBean implements Serializable {
     public List<SelectItem> getRolesSysteme() {
         if (rolesDisponibles == null) {
             rolesDisponibles = new ArrayList<>();
-            String role = "RAG-Base";
-            rolesDisponibles.add(new SelectItem(role, "Assistant RAG (Finance, IA)"));
+            String role = "RAG-Router";
+            rolesDisponibles.add(new SelectItem(role, "RAG avec Routage (Finance/IA)"));
         }
         return rolesDisponibles;
     }
